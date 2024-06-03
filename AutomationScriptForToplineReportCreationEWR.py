@@ -14,6 +14,7 @@ from docx.oxml import OxmlElement, ns
 from docx.oxml.ns import qn
 from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER, WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt
+from docx.enum.table import WD_ALIGN_VERTICAL
 
 st.title("Topline Report Generator")
 
@@ -58,12 +59,27 @@ if uploaded_file and survey_name:
             'difficult': 'Diff',
             'comfortable': 'Com',
             'uncomfortable': 'Uncom',
-            'completely': 'Comp'
+            'completely': 'Comp',
+            "don't do": 'DNDO',
+            "don't know": 'DNK',
+            "do not do": 'DNDO',
+            "do not know": 'DNK',
+            'much more likely': 'MML',
+            'somewhat more likely': 'SML',
+            'somewhat less likely': 'SLL',
+            'much less likely': 'MLL',
+            'middle': 'mid'
             }
+        column_name = column_name.lower()
         for key, value in replacements.items():
-            column_name = column_name.lower().replace(key, value)
-            
+            column_name = column_name.replace(key, value)
+        column_name = ' '.join(word.capitalize() if "'" not in word else word.capitalize() for word in column_name.split())
+        # Capitalize fully specific abbreviations
+        for abbr in ['Dndo', 'Dnk', 'Sml', 'Sll', 'Mll', 'Mml']:
+            column_name = column_name.replace(abbr, abbr.upper())
+        
         return column_name
+    
 
     def range_to_df(ws, remove_nan=True):
         # Read the cell values into a list of lists
@@ -212,11 +228,13 @@ if uploaded_file and survey_name:
                     p_format = paragraph.paragraph_format
                     p_format.space_before = Pt(0)
                     p_format.space_after = Pt(0)
-                    
+    
     # Create a new Word document
     doc = Document()
     
     section = doc.sections[0]
+    section.left_margin = Inches(1)
+    section.right_margin = Inches(1)
     
     section.different_first_page_header_footer = True
      
@@ -238,7 +256,7 @@ if uploaded_file and survey_name:
     
     # Add text to the header
     header_text = header2.paragraphs[0]
-    header_text.text = survey_name
+    header_text.text = "Survey"
     header_text.style.font.name = 'Chaparral Semibold'  # Font name
     header_text.style.font.size = Pt(12) 
     
@@ -270,11 +288,14 @@ if uploaded_file and survey_name:
                     cell_font = cell.paragraphs[0].runs[0].font
                     cell_font.size = Pt(12)  # Set font size to 12 points
                     cell_font.name = 'Acumin Pro'
-    
+                    cell.width = Inches(2.5)
+            
             # Add data column headers
             for col_idx, col_name in enumerate(i.columns):
                 cell2 = table.cell(0, col_idx + 1)
                 cell2.text = col_name
+                # cell2.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                cell2.vertical_alignment = WD_ALIGN_VERTICAL.CENTER 
                 cell_font = cell2.paragraphs[0].runs[0].font
                 cell_font.size = Pt(12)  # Set font size to 12 points
                 cell_font.name = 'Acumin Pro'
@@ -284,11 +305,20 @@ if uploaded_file and survey_name:
                 for col_idx, cell_value in enumerate(row, start=1):
                     cell3 = table.cell(row_idx, col_idx)
                     cell3.text = str(cell_value)
+                    # cell3.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    cell3.vertical_alignment = WD_ALIGN_VERTICAL.CENTER 
                     cell_font = cell3.paragraphs[0].runs[0].font
                     cell_font.size = Pt(12)  # Set font size to 12 points
                     cell_font.name = 'Acumin Pro'
                     
+            # doc.add_paragraph() # Empty space after every question
+            spacer_paragraph = doc.add_paragraph()
+            spacer_paragraph_format = spacer_paragraph.paragraph_format
+            spacer_paragraph_format.space_after = Pt(0)
+            spacer_paragraph_format.space_before = Pt(0)  # Minimum possible spacing
+            
             set_table_spacing(table)
+
     
     # Save the document
     file_name = f"Topline Report - {survey_name}.docx"
