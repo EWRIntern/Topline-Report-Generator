@@ -67,6 +67,8 @@ if uploaded_file and survey_name:
             'much more likely': 'MML',
             'somewhat more likely': 'SML',
             'somewhat less likely': 'SLL',
+            'some more likely': 'SML',
+            'some less likely': 'SLL',
             'much less likely': 'MLL',
             'middle': 'mid'
             }
