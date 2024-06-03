@@ -290,7 +290,7 @@ if uploaded_file and survey_name:
                     cell_font = cell.paragraphs[0].runs[0].font
                     cell_font.size = Pt(12)  # Set font size to 12 points
                     cell_font.name = 'Acumin Pro'
-                    cell.width = Inches(2.5)
+                    cell.width = Inches(3.5)
             
             # Add data column headers
             for col_idx, col_name in enumerate(i.columns):
