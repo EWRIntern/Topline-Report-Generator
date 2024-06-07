@@ -19,10 +19,11 @@ from docx.enum.table import WD_ALIGN_VERTICAL
 st.title("Topline Report Generator")
 
 uploaded_file = st.file_uploader("Upload a crosstab file", type="xlsx")
-survey_name = st.text_input("Enter the survey name exactly as you'd like it to be displayed in the header.")
+survey_header_name = st.text_input("Enter the survey name exactly as you'd like it to be displayed in the header.")
+survey_file_name = st.text_input("Enter the name of your life.")
 
 # Check if a file has been uploaded
-if uploaded_file and survey_name:
+if uploaded_file and survey_header_name and survey_file_name:
     # Load the workbook
     wb = openpyxl.load_workbook(uploaded_file)
     
@@ -42,8 +43,12 @@ if uploaded_file and survey_name:
         if ws[f'A{i}'].value=='Back to TOC':
             toc_locs.append(i)
             
+    alphabets = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z']
+
     def replace_keywords(column_name):
         replacements = {
+            'somewhat more likely': 'SML',
+            'somewhat less likely': 'SLL',
             'somewhat': 'Some',
             'favorable': 'Fav',
             'unfavorable': 'Unfav',
@@ -65,13 +70,10 @@ if uploaded_file and survey_name:
             "do not do": 'DNDO',
             "do not know": 'DNK',
             'much more likely': 'MML',
-            'somewhat more likely': 'SML',
-            'somewhat less likely': 'SLL',
-            'some more likely': 'SML',
-            'some less likely': 'SLL',
             'much less likely': 'MLL',
             'middle': 'mid'
             }
+        
         column_name = column_name.lower()
         for key, value in replacements.items():
             column_name = column_name.replace(key, value)
@@ -79,7 +81,7 @@ if uploaded_file and survey_name:
         # Capitalize fully specific abbreviations
         for abbr in ['Dndo', 'Dnk', 'Sml', 'Sll', 'Mll', 'Mml']:
             column_name = column_name.replace(abbr, abbr.upper())
-        
+            
         return column_name
     
 
@@ -95,8 +97,13 @@ if uploaded_file and survey_name:
         df.columns = data_rows[0]
         if remove_nan:
             df.dropna(axis=1, how='all', inplace=True)
-        
+    
+        if len(df.columns)==2:
+            df = df[df.Total>0.0001]
+            
         df['Total'] = df['Total'].map(lambda x: '{:.0%}'.format(x))
+            
+    
     
         if len(df.columns)>2 and df.columns[1]!='Total'and df.columns[2]=='Total':
             df.columns = ['Group', 'Statement', 'Total']
@@ -104,6 +111,8 @@ if uploaded_file and survey_name:
             df['Group'] = df['Group'].ffill()
             df = df.iloc[:-1,:].pivot(index='Statement', columns='Group', values='Total')
             df = df.loc[temp]
+            # df['Statement'] = df['Statement'].ffill()
+            # df = df.iloc[:-1,:].pivot(index='Group', columns='Statement', values='Total')
             
         else:
             df.fillna('', inplace=True)
@@ -117,16 +126,26 @@ if uploaded_file and survey_name:
             if df.iloc[-1, 0] == 'Column Sample Size':
                 df = df.iloc[:-1,]
     
+    
         if 'int' in str(df.index.dtype):
             df = df[~df.iloc[:,0].str.contains('NET:')]
+            df.Total = df.Total.replace('0%','*%')
             
         if 'int' not in str(df.index.dtype):
             df = df[~df.index.str.contains('NET:')]
     
         if df.index.name=='Statement':
             df=df.T
-            df.columns = [replace_keywords(col) for col in df.columns]    
+    
+            index_temp = []
             
+            for i in range(len(df.index)):
+                index_temp.append(f'[]{alphabets[i]}.    {df.index[i]}')
+    
+            df.index = index_temp
+            
+        
+            df.columns = [replace_keywords(col) for col in df.columns]    
         return df
     
     def get_cell_coordinate(row, column):
@@ -258,7 +277,7 @@ if uploaded_file and survey_name:
     
     # Add text to the header
     header_text = header2.paragraphs[0]
-    header_text.text = "Survey"
+    header_text.text = survey_header_name
     header_text.style.font.name = 'Chaparral Semibold'  # Font name
     header_text.style.font.size = Pt(12) 
     
@@ -290,7 +309,7 @@ if uploaded_file and survey_name:
                     cell_font = cell.paragraphs[0].runs[0].font
                     cell_font.size = Pt(12)  # Set font size to 12 points
                     cell_font.name = 'Acumin Pro'
-                    cell.width = Inches(3.5)
+                    cell.width = Inches(10.0)
             
             # Add data column headers
             for col_idx, col_name in enumerate(i.columns):
@@ -323,7 +342,7 @@ if uploaded_file and survey_name:
 
     
     # Save the document
-    file_name = f"Topline Report - {survey_name}.docx"
+    file_name = f"{survey_file_name}.docx"
     doc.save(file_name)
 
     with open(file_name, "rb") as file:
