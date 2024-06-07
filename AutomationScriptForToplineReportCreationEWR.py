@@ -20,7 +20,7 @@ st.title("Topline Report Generator")
 
 uploaded_file = st.file_uploader("Upload a crosstab file", type="xlsx")
 survey_header_name = st.text_input("Enter the survey name exactly as you'd like it to be displayed in the header.")
-survey_file_name = st.text_input("Enter the name of your life.")
+survey_file_name = st.text_input("Enter the name of your topline report.")
 
 # Check if a file has been uploaded
 if uploaded_file and survey_header_name and survey_file_name:
