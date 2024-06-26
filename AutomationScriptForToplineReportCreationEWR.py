@@ -20,7 +20,7 @@ st.title("Topline Report Generator")
 
 uploaded_file = st.file_uploader("Upload a crosstab file", type="xlsx")
 survey_header_name = st.text_input("Enter the survey name exactly as you'd like it to be displayed in the header.")
-survey_file_name = st.text_input("Enter the name of your topline report.")
+survey_file_name = st.text_input("Enter the name of your life.")
 
 # Check if a file has been uploaded
 if uploaded_file and survey_header_name and survey_file_name:
@@ -101,10 +101,8 @@ if uploaded_file and survey_header_name and survey_file_name:
         if len(df.columns)==2:
             df = df[df.Total>0.0001]
             
-        df['Total'] = df['Total'].map(lambda x: '{:.0%}'.format(x))
+        df['Total'] = df['Total'].map(lambda x: '{:.0f}'.format(x * 100))
             
-    
-    
         if len(df.columns)>2 and df.columns[1]!='Total'and df.columns[2]=='Total':
             df.columns = ['Group', 'Statement', 'Total']
             temp = list(df.Statement.unique()[:-1])
@@ -130,6 +128,7 @@ if uploaded_file and survey_header_name and survey_file_name:
         if 'int' in str(df.index.dtype):
             df = df[~df.iloc[:,0].str.contains('NET:')]
             df.Total = df.Total.replace('0%','*%')
+            df.columns = ['','']
             
         if 'int' not in str(df.index.dtype):
             df = df[~df.index.str.contains('NET:')]
@@ -203,7 +202,12 @@ if uploaded_file and survey_header_name and survey_file_name:
                     dataframe = range_to_df(ws[f'A{i+3}':max_cell])
                     data.append(dataframe)
             else:
-                continue    
+                continue  
+            
+    temp = [type(i)==str and i[0]=='B' and i[2]=='.' for i in data]
+    
+    if True in temp:
+        data = data[:temp.index(True)]    
         
     def create_element(name):
         return OxmlElement(name)
