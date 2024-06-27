@@ -107,8 +107,10 @@ if uploaded_file and survey_header_name and survey_file_name:
             df.columns = ['Group', 'Statement', 'Total']
             temp = list(df.Statement.unique()[:-1])
             df['Group'] = df['Group'].ffill()
+            temp2 = list(df.Group.unique())
             df = df.iloc[:-1,:].pivot(index='Statement', columns='Group', values='Total')
             df = df.loc[temp]
+            df = df[temp2]
             # df['Statement'] = df['Statement'].ffill()
             # df = df.iloc[:-1,:].pivot(index='Group', columns='Statement', values='Total')
             
@@ -129,6 +131,11 @@ if uploaded_file and survey_header_name and survey_file_name:
             df = df[~df.iloc[:,0].str.contains('NET:')]
             df.Total = df.Total.replace('0%','*%')
             df.columns = ['','']
+            df.iloc[0, 1] = df.iloc[0, 1] + '%'
+
+            if df.shape[0]: # If dataframe has atleast one row
+                df.columns = df.iloc[0, :]
+                df = df.iloc[1:, :]
             
         if 'int' not in str(df.index.dtype):
             df = df[~df.index.str.contains('NET:')]
@@ -142,6 +149,7 @@ if uploaded_file and survey_header_name and survey_file_name:
                 index_temp.append(f'[]{alphabets[i]}.    {df.index[i]}')
     
             df.index = index_temp
+            df.iloc[:, 0] = df.iloc[:, 0] + '%' # First column to percentages
             
         
             df.columns = [replace_keywords(col) for col in df.columns]    
