@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu May 30 09:03:45 2024
+Created on Thu Jul 24 10:21:38 2025
 
 @author: raghavi
 """
 
+# Importing necessary libraries
 import streamlit as st
+import re
 import pandas as pd
 import openpyxl
 from openpyxl.utils import get_column_letter
@@ -16,10 +18,15 @@ from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER, WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt
 from docx.enum.table import WD_ALIGN_VERTICAL
 
-st.title("Topline Report Generator")
+st.title("Topline Report Generator") # Title page for the UI
 
+# Ask the user for input file which is the crosstab excel file 
 uploaded_file = st.file_uploader("Upload a crosstab file", type="xlsx")
+
+# Ask the user for the survey header that needs to be in the topline document
 survey_header_name = st.text_input("Enter the survey name exactly as you'd like it to be displayed in the header.")
+
+# Ask the user for the name of the document itself
 survey_file_name = st.text_input("Enter the name of your life.")
 
 # Check if a file has been uploaded
@@ -27,24 +34,25 @@ if uploaded_file and survey_header_name and survey_file_name:
     # Load the workbook
     wb = openpyxl.load_workbook(uploaded_file)
     
-    # Option to select sheet
-    #sheet_names = wb.sheetnames
-    #selected_sheet = st.selectbox("Select a sheet", sheet_names)
-    
-    # Load the selected sheet
-    #ws = wb[selected_sheet]
+    # Load the Tables sheet in which the crosstabs are present
     ws = wb['Tables']
     
+    # Get the maximum number of rows and columns in the excel sheet uploaded by the user
+    # This is done to determine the sheet dimensions
     m = ws.max_row + 1
     n = ws.max_column + 1
     
+    # Get the location of the phrase "Back to TOC in order to identify the start and the end of the questions"
+    # This information is stored in toc_locs as a list
     toc_locs = []
     for i in range(1,m):
         if ws[f'A{i}'].value=='Back to TOC':
             toc_locs.append(i)
             
-    alphabets = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z']
-
+    # Alphabet labels for indexing        
+    alphabets = list('abcdefghijklmnopqrstuvwxyz')
+    
+    # Helper function: replace keywords in column names
     def replace_keywords(column_name):
         replacements = {
             'somewhat more likely': 'SML',
@@ -84,8 +92,8 @@ if uploaded_file and survey_header_name and survey_file_name:
             
         return column_name
     
-
-    def range_to_df(ws, remove_nan=True):
+    # Helper function: convert Excel range to DataFrame
+    def range_to_df(ws, remove_nan=True, range_address=None):
         # Read the cell values into a list of lists
         data_rows = []
         for row in ws:
@@ -103,7 +111,7 @@ if uploaded_file and survey_header_name and survey_file_name:
             
         df['Total'] = df['Total'].map(lambda x: '{:.0f}'.format(x * 100))
             
-        if len(df.columns)>2 and df.columns[1]!='Total'and df.columns[2]=='Total':
+        if len(df.columns)>2 and df.columns[1]!='Total' and df.columns[2]=='Total':
             df.columns = ['Group', 'Statement', 'Total']
             temp = list(df.Statement.unique()[:-1])
             df['Group'] = df['Group'].ffill()
@@ -111,8 +119,6 @@ if uploaded_file and survey_header_name and survey_file_name:
             df = df.iloc[:-1,:].pivot(index='Statement', columns='Group', values='Total')
             df = df.loc[temp]
             df = df[temp2]
-            # df['Statement'] = df['Statement'].ffill()
-            # df = df.iloc[:-1,:].pivot(index='Group', columns='Statement', values='Total')
             
         else:
             df.fillna('', inplace=True)
@@ -126,14 +132,16 @@ if uploaded_file and survey_header_name and survey_file_name:
             if df.iloc[-1, 0] == 'Column Sample Size':
                 df = df.iloc[:-1,]
     
-    
         if 'int' in str(df.index.dtype):
             df = df[~df.iloc[:,0].str.contains('NET:')]
             df.Total = df.Total.replace('0%','*%')
             df.columns = ['','']
+            if df.shape[0] < 1 or df.shape[1] < 2:
+                print(f"⚠️ range_to_df: empty or too small after NET: for {range_address!r}")
+                return df
             df.iloc[0, 1] = df.iloc[0, 1] + '%'
 
-            if df.shape[0]: # If dataframe has atleast one row
+            if df.shape[0] > 1: # If dataframe has atleast one row
                 df.columns = df.iloc[0, :]
                 df = df.iloc[1:, :]
             
@@ -142,16 +150,15 @@ if uploaded_file and survey_header_name and survey_file_name:
     
         if df.index.name=='Statement':
             df=df.T
-    
             index_temp = []
-            
             for i in range(len(df.index)):
                 index_temp.append(f'[]{alphabets[i]}.    {df.index[i]}')
     
             df.index = index_temp
+            if df.shape[0] < 1 or df.shape[1] < 1:
+                print(f"⚠️ range_to_df: empty after NET‑filter/pivot for range {range_address!r}")
+                return df
             df.iloc[:, 0] = df.iloc[:, 0] + '%' # First column to percentages
-            
-        
             df.columns = [replace_keywords(col) for col in df.columns]    
         return df
     
@@ -165,16 +172,11 @@ if uploaded_file and survey_header_name and survey_file_name:
     for i in range(1,m):
         if i in toc_locs:
             by_banner_check = ws[f'A{i+1}'].value
-            
-            if 'by BANNER' in by_banner_check:
-                by_ban_ind = by_banner_check.find('by BANNER')
-                data.append(by_banner_check[:by_ban_ind])
-                
-            elif 'by.BANNER' in by_banner_check:
-                by_ban_ind = by_banner_check.find('by.BANNER')
-                data.append(by_banner_check[:by_ban_ind])
-                
-            if 'by BANNER' in by_banner_check or 'by.BANNER' in by_banner_check:
+            matches = list(re.finditer(r'by[\s\.]+.*?banner', by_banner_check, flags=re.IGNORECASE))
+            if matches:
+                last = matches[-1]
+                title = by_banner_check[: last.start() ].strip()
+                data.append(title)
                 max_col = None
                 max_row = None
                 for col in ws.iter_cols(min_row=i+3, max_row = i+3, max_col = n):
@@ -190,7 +192,6 @@ if uploaded_file and survey_header_name and survey_file_name:
                     next_toc_loc = m
     
                 ct=0
-                
                 for row in ws.iter_rows(min_col=max_col, max_col=max_col, min_row = i+3, max_row = next_toc_loc):
                     for cell in row:
                         if cell.value==None:
@@ -204,10 +205,16 @@ if uploaded_file and survey_header_name and survey_file_name:
     
                 if (not max_col) or (not max_row):
                     data.pop()
-                    print(f'Table format not found for chunk {i}. Skipping....')
+                    print(f"Skipping chunk {i}, could not locate table bounds.")
                 else:
                     max_cell = get_cell_coordinate(max_row, max_col)
-                    dataframe = range_to_df(ws[f'A{i+3}':max_cell])
+                    rng = f"A{i+3}:{max_cell}"
+                    dataframe = range_to_df(ws[f'A{i+3}':max_cell], range_address = rng)
+                    if dataframe.empty or dataframe.shape[1] == 0:
+                        print(f"Skipping chunk starting at row {i+3}, range {rng}: no data after NET: filtering")
+                        print(f"⚠️ Dropping question “{title}” (empty table at {rng})")
+                        data.pop()
+                        continue
                     data.append(dataframe)
             else:
                 continue  
