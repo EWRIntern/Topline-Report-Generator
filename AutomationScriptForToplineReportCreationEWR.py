@@ -27,7 +27,7 @@ uploaded_file = st.file_uploader("Upload a crosstab file", type="xlsx")
 survey_header_name = st.text_input("Enter the survey name exactly as you'd like it to be displayed in the header.")
 
 # Ask the user for the name of the document itself
-survey_file_name = st.text_input("Enter the name of your life.")
+survey_file_name = st.text_input("Enter the name of your file.")
 
 user_word_by = st.text_input("When you finish creating the crosstabs, indicate the basis used at the end of the sentence. For example, enter banner if it’s by banner, or section 2 if it's by section 2, and so on").strip()
 
@@ -492,3 +492,4 @@ if uploaded_file and survey_header_name and survey_file_name:
 
 else:
     st.error("Please upload an Excel file.")
+
