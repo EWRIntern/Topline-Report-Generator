@@ -98,7 +98,12 @@ if uploaded_file and survey_header_name and survey_file_name:
     def format_total(x):
         if pd.isna(x):
             return ""
-        val = x * 100  # convert to %
+        if isinstance(x, str):
+            return x
+        try:
+            val = float(x) * 100  # convert to %
+        except (TypeError, ValueError):
+            return x
         if val == 0:
             return "0"
         elif val < 0.5:
@@ -106,6 +111,40 @@ if uploaded_file and survey_header_name and survey_file_name:
         else:
             return str(int(round(val)))
     
+    def _is_cell_text(value, text):
+        return isinstance(value, str) and value.strip().lower() == text.lower()
+
+    def normalize_crosstab_header(data_rows):
+        """
+        Old tables usually put `Total` directly on the `Column %` row.
+        New tables can put `Total` on the row above, while the `Column %` row
+        has a response value like `Yes` under that same column. In that case,
+        replace the response value with `Total` before creating the DataFrame.
+        """
+        if not data_rows:
+            return data_rows
+
+        column_pct_idx = None
+        for idx, row in enumerate(data_rows[:4]):
+            if any(_is_cell_text(cell, "Column %") for cell in row):
+                column_pct_idx = idx
+                break
+
+        if column_pct_idx is None:
+            return data_rows
+
+        header_row = list(data_rows[column_pct_idx])
+        group_row = data_rows[column_pct_idx - 1] if column_pct_idx > 0 else []
+
+        for col_idx, group_value in enumerate(group_row):
+            group_text = str(group_value).strip().lower() if group_value is not None else ""
+            # Covers both `Total` and labels like `Staff Total` on the upper header row.
+            if group_text == "total" or group_text.endswith(" total"):
+                if col_idx < len(header_row):
+                    header_row[col_idx] = "Total"
+
+        return [header_row] + data_rows[column_pct_idx + 1:]
+
     # Helper function: convert Excel range to DataFrame
     def range_to_df(ws, remove_nan=True, range_address=None):
         # Read the cell values into a list of lists
@@ -115,6 +154,11 @@ if uploaded_file and survey_header_name and survey_file_name:
             for cell in row:
                 data_cols.append(cell.value)
             data_rows.append(data_cols)
+
+        data_rows = normalize_crosstab_header(data_rows)
+        if len(data_rows) < 2:
+            return pd.DataFrame()
+
         df = pd.DataFrame(data_rows[1:])
         df.columns = data_rows[0]
         if remove_nan:
@@ -191,6 +235,41 @@ if uploaded_file and survey_header_name and survey_file_name:
             if any(cell.value == 'Total' for cell in col):
                 return next(cell.column for cell in col if cell.value == 'Total')
         return None
+
+    def find_table_header(ws, toc_row, n, lookahead=8):
+        """
+        Return (table_start_row, total_col).
+        Works for both:
+          - Old style: Column % row contains Total
+          - New style: row above Column % contains Total/Staff Total, while Column % row can say Yes
+        """
+        for row_num in range(toc_row + 1, min(toc_row + lookahead + 1, m)):
+            row_values = [ws.cell(row=row_num, column=col).value for col in range(1, n)]
+            if not any(_is_cell_text(value, "Column %") for value in row_values):
+                continue
+
+            total_col = find_total_col(ws, row_num, n)
+            table_start_row = row_num
+
+            previous_row = row_num - 1
+            if not total_col and previous_row >= 1:
+                for col in range(1, n):
+                    value = ws.cell(row=previous_row, column=col).value
+                    text = str(value).strip().lower() if value is not None else ""
+                    if text == "total" or text.endswith(" total"):
+                        total_col = col
+                        table_start_row = previous_row
+                        break
+            elif previous_row >= 1:
+                # Include the group-header row when present so normalize_crosstab_header can harmonize it.
+                prev_values = [ws.cell(row=previous_row, column=col).value for col in range(1, n)]
+                if any(value is not None for value in prev_values):
+                    table_start_row = previous_row
+
+            if total_col:
+                return table_start_row, total_col
+
+        return None, None
     
     def find_table(ws, start_row, max_col, next_toc):
         """
@@ -235,29 +314,24 @@ if uploaded_file and survey_header_name and survey_file_name:
             title = by_banner_check[: last.start() ].strip()
             data.append(title)
             
-            # --- Locate Total column with fallback (i+3 then i+4) ---
-            max_col = None
-            for header_row in (i+3, i+4):
-                max_col = find_total_col(ws, header_row, n)
-                if max_col:
-                    header_start_row = header_row  # Remember which header row we locked onto
-                    break
+            # --- Locate table header and Total column for old crosstab-style and the new crosstab-style ---
+            header_start_row, max_col = find_table_header(ws, i, n)
             
             if not max_col:
                 data.pop()
-                print(f"Skipping chunk {i}, no 'Total' column found on rows {i+3} or {i+4}.")
+                print(f"Skipping chunk {i}, no usable crosstab header / Total column found near rows {i+1}-{i+8}.")
                 continue
             
             # --- Determine search boundary for this block ---
             idx = toc_locs.index(i)
             next_toc = toc_locs[idx+1] if idx < len(toc_locs)-1 else m
             
-            # --- Find table bounds with fallback start rows (i+3 then i+4) ---
+            # --- Find table bounds from the detected header row ---
             try:
-                max_row, df = find_table(ws, i+3, max_col, next_toc)
+                max_row, df = find_table(ws, header_start_row, max_col, next_toc)
             except Exception:
-                # fallback
-                max_row, df = find_table(ws, i+4, max_col, next_toc)
+                # fallback to the row below if a source workbook has an unexpected spacer row
+                max_row, df = find_table(ws, header_start_row + 1, max_col, next_toc)
     
             if df is None:
                 data.pop()
@@ -266,7 +340,7 @@ if uploaded_file and survey_header_name and survey_file_name:
             
             # --- Keep only non-empty, meaningful tables ---
             if df.empty or df.shape[1] == 0:
-                print(f"Skipping chunk starting at row {i+3}, range A{i+3}:{get_cell_coordinate(max_row, max_col)}: no data after NET: filtering")
+                print(f"Skipping chunk starting at row {header_start_row}, range A{header_start_row}:{get_cell_coordinate(max_row, max_col)}: no data after NET: filtering")
                 print(f"⚠️ Dropping question “{title}” (empty table).")
                 data.pop()
                 continue
